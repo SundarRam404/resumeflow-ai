@@ -1,0 +1,8 @@
+flask
+flask-cors
+gunicorn
+groq
+pymupdf
+pillow
+python-dotenv
+gevent
