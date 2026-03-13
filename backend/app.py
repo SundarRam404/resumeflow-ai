@@ -14,8 +14,11 @@ import uuid
 import shutil
 import re
 
-app = Flask(__name__)
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
+app = Flask(__name__)
+CORS(app)
 # --- CHANGE 1: DYNAMIC CORS FOR DEPLOYMENT ---
 frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 CORS(app, resources={r"/*": {"origins": frontend_url}})
