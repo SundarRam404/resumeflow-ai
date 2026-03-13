@@ -6,7 +6,7 @@ import './App.css';
 import LoaderGif from './load.gif'; // Make sure this path is correct
 
 // Fixed: Dynamic URL for local and production
-const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:10000";
+const API_BASE_URL = "https://resumeflow-ai-62mb.onrender.com";
 
 function App() {
   const [resumeFile, setResumeFile] = useState(null);
