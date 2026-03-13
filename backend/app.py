@@ -6,13 +6,13 @@ import json
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
-import fitz  # PyMuPDF
+import fitz
 from PIL import Image
 import tempfile
 from groq import Groq
-import uuid  # For unique filenames
-import shutil  # For copying/moving files
-import re  # For extracting name from parsed text
+import uuid
+import shutil
+import re
 
 app = Flask(__name__)
 
@@ -27,7 +27,7 @@ if not groq_key:
 
 client = Groq(api_key=groq_key)
 
-# --- Directory Setup (Unchanged) ---
+# --- Directory Setup ---
 UPLOAD_FOLDER = 'uploads/temp_resumes'
 SAVED_RESUMES_DIR = 'saved_data/resumes'
 METADATA_DB_FILE = 'saved_data/resumes_metadata.json'
@@ -39,16 +39,28 @@ if not os.path.exists(METADATA_DB_FILE) or os.stat(METADATA_DB_FILE).st_size == 
     with open(METADATA_DB_FILE, 'w') as f:
         json.dump([], f)
 
-# --- Helper functions for metadata (Unchanged) ---
+
 def load_metadata():
     if not os.path.exists(METADATA_DB_FILE) or os.stat(METADATA_DB_FILE).st_size == 0:
         return []
     with open(METADATA_DB_FILE, 'r') as f:
         return json.load(f)
 
+
 def save_metadata(metadata):
     with open(METADATA_DB_FILE, 'w') as f:
         json.dump(metadata, f, indent=4)
+
+
+def extract_pdf_text(pdf_file_path):
+    doc = fitz.open(pdf_file_path)
+    text = ""
+
+    for page in doc:
+        text += page.get_text()
+
+    doc.close()
+    return text
 
 # --- LLM Interaction Functions ---
 
@@ -409,143 +421,239 @@ JD_OPTIONS = {
 def get_jd_options():
     return jsonify(list(JD_OPTIONS.keys()))
 
+
 @app.route('/jd_default', methods=['GET'])
 def get_jd_default():
     return jsonify(JD_OPTIONS["Software Engineer"])
 
+
 @app.route('/jd_text', methods=['POST'])
 def get_jd_text():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     role = data.get('role')
     return jsonify("" if role == "Custom Input" else JD_OPTIONS.get(role, "No default JD found."))
 
+
 @app.route('/parse_resume', methods=['POST'])
 def api_parse_resume():
-    if 'resume' not in request.files: return jsonify({"error": "No resume file provided"}), 400
+
+    if 'resume' not in request.files:
+        return jsonify({"error": "No resume file provided"}), 400
+
     file = request.files['resume']
-    if file.filename == '': return jsonify({"error": "No selected file"}), 400
-    
+
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
     original_filename = secure_filename(file.filename)
+
     unique_temp_filename = f"{uuid.uuid4()}_{original_filename}"
+
     temp_filepath = os.path.join(UPLOAD_FOLDER, unique_temp_filename)
+
     file.save(temp_filepath)
 
     try:
+
         parsed_data = parse_resume_content(temp_filepath)
-        parsed_data.update({"original_filename": original_filename, "temp_saved_filename": unique_temp_filename})
+
+        parsed_data.update({
+            "original_filename": original_filename,
+            "temp_saved_filename": unique_temp_filename
+        })
+
         return jsonify(parsed_data)
+
     except Exception as e:
-        if os.path.exists(temp_filepath): os.remove(temp_filepath)
-        return jsonify({"error": f"Error: {e}", "display_output": f"```plain\nError: {e}\n```"}), 500
+
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+
+        return jsonify({
+            "error": f"Error: {e}",
+            "display_output": f"```plain\nError: {e}\n```"
+        }), 500
+
 
 @app.route('/resume_check', methods=['POST'])
 def api_resume_check():
-    return jsonify({"output": resume_check_content(request.get_json().get('resume_text'))})
+
+    data = request.get_json(silent=True) or {}
+
+    return jsonify({
+        "output": resume_check_content(data.get('resume_text'))
+    })
+
 
 @app.route('/jd_match', methods=['POST'])
 def api_jd_match():
-    data = request.get_json()
-    return jsonify({"output": jd_match_content(data.get('resume_text'), data.get('jd_text'))})
+
+    data = request.get_json(silent=True) or {}
+
+    return jsonify({
+        "output": jd_match_content(
+            data.get('resume_text'),
+            data.get('jd_text')
+        )
+    })
+
 
 @app.route('/generate_questions', methods=['POST'])
 def api_generate_questions():
-    data = request.get_json()
-    return jsonify({"output": generate_questions_content(data.get('resume_text'), data.get('jd_text'))})
+
+    data = request.get_json(silent=True) or {}
+
+    return jsonify({
+        "output": generate_questions_content(
+            data.get('resume_text'),
+            data.get('jd_text')
+        )
+    })
+
 
 @app.route('/fit_score', methods=['POST'])
 def api_fit_score():
-    data = request.get_json()
-    return jsonify({"output": fit_score_content(data.get('resume_text'), data.get('jd_text'))})
+
+    data = request.get_json(silent=True) or {}
+
+    return jsonify({
+        "output": fit_score_content(
+            data.get('resume_text'),
+            data.get('jd_text')
+        )
+    })
+
 
 @app.route('/generate_resume_table', methods=['POST'])
 def api_generate_resume_table():
-    return jsonify({"output": convert_json_to_markdown_table_programmatic(request.get_json().get('resume_text_cache'))})
+
+    data = request.get_json(silent=True) or {}
+
+    return jsonify({
+        "output": convert_json_to_markdown_table_programmatic(
+            data.get('resume_text_cache')
+        )
+    })
+
 
 @app.route('/confirm_document', methods=['POST'])
 def confirm_document():
-    data = request.json
-    required_keys = ['resume_text_cache', 'jd_text', 'fit_score_output', 'interview_qa_output', 'selected_jd_role', 'original_file_name', 'temp_saved_filename', 'parsed_resume_name']
+
+    data = request.get_json(silent=True) or {}
+
+    required_keys = [
+        'resume_text_cache',
+        'jd_text',
+        'fit_score_output',
+        'interview_qa_output',
+        'selected_jd_role',
+        'original_file_name',
+        'temp_saved_filename',
+        'parsed_resume_name'
+    ]
+
     if not all(k in data for k in required_keys):
         return jsonify({"error": "Missing required data for confirmation"}), 400
 
     entry_id = str(uuid.uuid4())
+
     filename_base, file_ext = os.path.splitext(data['original_file_name'])
+
     saved_resume_filename_unique = f"{entry_id}_{secure_filename(filename_base)}{file_ext}"
+
     saved_qa_filename = f"{entry_id}_qa.md"
-    temp_resume_source_path = os.path.join(UPLOAD_FOLDER, data['temp_saved_filename'])
-    
+
+    temp_resume_source_path = os.path.join(
+        UPLOAD_FOLDER,
+        data['temp_saved_filename']
+    )
+
     if os.path.exists(temp_resume_source_path):
-        shutil.move(temp_resume_source_path, os.path.join(SAVED_RESUMES_DIR, saved_resume_filename_unique))
+
+        shutil.move(
+            temp_resume_source_path,
+            os.path.join(SAVED_RESUMES_DIR, saved_resume_filename_unique)
+        )
+
     else:
+
         return jsonify({"error": "Temporary resume file not found on server."}), 500
 
-    with open(os.path.join(SAVED_RESUMES_DIR, saved_qa_filename), 'w', encoding='utf-8') as f:
+    with open(
+        os.path.join(SAVED_RESUMES_DIR, saved_qa_filename),
+        'w',
+        encoding='utf-8'
+    ) as f:
+
         f.write(data['interview_qa_output'])
-    
+
     metadata = load_metadata()
+
     metadata.append({
-        "id": entry_id, "person_name": data['parsed_resume_name'], "jd_role": data['selected_jd_role'],
-        "fit_score": data['fit_score_output'], "resume_filename": saved_resume_filename_unique,
-        "qa_filename": saved_qa_filename, "timestamp": data.get('timestamp')
+        "id": entry_id,
+        "person_name": data['parsed_resume_name'],
+        "jd_role": data['selected_jd_role'],
+        "fit_score": data['fit_score_output'],
+        "resume_filename": saved_resume_filename_unique,
+        "qa_filename": saved_qa_filename,
+        "timestamp": data.get('timestamp')
     })
+
     save_metadata(metadata)
-    return jsonify({"message": "Document confirmed and saved!", "id": entry_id}), 200
 
-@app.route('/get_saved_resumes', methods=['GET'])
-def get_saved_resumes():
-    args = request.args
-    metadata = load_metadata()
-    if args.get('role') and args.get('role') != 'All Roles':
-        metadata = [r for r in metadata if r.get('jd_role') == args.get('role')]
+    return jsonify({
+        "message": "Document confirmed and saved!",
+        "id": entry_id
+    }), 200
 
-    sort_key = args.get('sort_key', 'timestamp')
-    reverse = args.get('sort_order', 'desc') == 'desc'
-    
-    def get_score_value(entry):
-        try: return float(re.search(r'(\d+(\.\d+)?)', entry.get('fit_score', '0')).group(1))
-        except: return 0.0
-    
-    if sort_key == 'fit_score':
-        metadata.sort(key=get_score_value, reverse=reverse)
-    elif sort_key == 'person_name':
-        metadata.sort(key=lambda x: x.get('person_name', '').lower(), reverse=reverse)
-    else:
-        metadata.sort(key=lambda x: x.get(sort_key, ''), reverse=reverse)
-        
-    return jsonify(metadata)
-
-@app.route('/download_resume/<filename>', methods=['GET'])
-def download_resume(filename):
-    return send_from_directory(SAVED_RESUMES_DIR, secure_filename(filename), as_attachment=True)
-
-@app.route('/get_interview_qa/<filename>', methods=['GET'])
-def get_interview_qa(filename):
-    path = os.path.join(SAVED_RESUMES_DIR, secure_filename(filename))
-    if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as f:
-            return jsonify({"qa_content": f.read()})
-    return jsonify({"error": "QA file not found"}), 404
 
 @app.route('/clear_all_data', methods=['POST'])
 def clear_all_data():
+
     try:
+
         for folder in [UPLOAD_FOLDER, SAVED_RESUMES_DIR]:
+
             if os.path.exists(folder):
+
                 for filename in os.listdir(folder):
-                    os.remove(os.path.join(folder, filename))
+
+                    file_path = os.path.join(folder, filename)
+
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+
         with open(METADATA_DB_FILE, 'w') as f:
             json.dump([], f)
+
         return jsonify({"message": "All data cleared successfully!"}), 200
+
     except Exception as e:
+
         return jsonify({"error": f"Failed to clear all data: {e}"}), 500
 
+
+# -------------------------------
+# SERVER START
+# -------------------------------
+
 if __name__ == "__main__":
+
     if os.path.exists(UPLOAD_FOLDER):
+
         for filename in os.listdir(UPLOAD_FOLDER):
+
             try:
-                os.remove(os.path.join(UPLOAD_FOLDER, filename))
+
+                file_path = os.path.join(UPLOAD_FOLDER, filename)
+
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+
             except Exception as e:
+
                 print(f"Error cleaning up old temp file: {e}")
 
     port = int(os.environ.get("PORT", 10000))
+
     app.run(host="0.0.0.0", port=port)
