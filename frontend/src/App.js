@@ -5,49 +5,44 @@ import './App.css';
 
 import LoaderGif from './load.gif'; // Make sure this path is correct
 
-// Using explicit URL for API calls
-// Use environment variable for the API URL, with a fallback for local development
-const API_BASE_URL = "https://resumeflow-ai-62mb.onrender.com";
+// Fixed: Dynamic URL for local and production
+const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:10000";
+
 function App() {
   const [resumeFile, setResumeFile] = useState(null);
-  const [jdOptions, setJdOptions] = useState([]); // Stores JD roles from backend
-  const [selectedJDRole, setSelectedJDRole] = useState('Software Engineer'); // Currently selected JD role
-  const [jdText, setJdText] = useState(''); // Text content of the JD
+  const [jdOptions, setJdOptions] = useState([]); 
+  const [selectedJDRole, setSelectedJDRole] = useState('Software Engineer'); 
+  const [jdText, setJdText] = useState(''); 
   
-  // CRITICAL FIX: Ensure these are correctly declared with useState
-  const [resumeTextCache, setResumeTextCache] = useState(''); // Raw text from parsed resume
+  const [resumeTextCache, setResumeTextCache] = useState(''); 
   
-  const [parsedResumeOutput, setParsedResumeOutput] = useState(''); // Formatted parsed resume output (markdown)
+  const [parsedResumeOutput, setParsedResumeOutput] = useState(''); 
   const [resumeTableOutput, setResumeTableOutput] = useState('');
   const [resumeCheckOutput, setResumeCheckOutput] = useState('');
   const [jdMatchOutput, setJdMatchOutput] = useState('');
   const [interviewQaOutput, setInterviewQaOutput] = useState('');
   const [fitScoreOutput, setFitScoreOutput] = useState('');
-  const [activeTab, setActiveTab] = useState('parse'); // Controls which tab content is visible
-  const [loading, setLoading] = useState(false); // Global loading indicator
-  const [error, setError] = useState(null); // Global error message
-  const [showFullFitScoreReview, setShowFullFitScoreReview] = useState(false); // For Fit Score dropdown
+  const [activeTab, setActiveTab] = useState('parse'); 
+  const [loading, setLoading] = useState(false); 
+  const [error, setError] = useState(null); 
+  const [showFullFitScoreReview, setShowFullFitScoreReview] = useState(false); 
 
-  // NEW STATES FOR SAVED RESUMES FEATURE
-  const [savedResumes, setSavedResumes] = useState([]); // List of saved resume metadata
-  const [showInterviewQaId, setShowInterviewQaId] = useState(null); // Tracks which QA dropdown is open
-  const [savedJdFilter, setSavedJdFilter] = useState('All Roles'); // Filter for the "All Resumes" section
-  const [extractedResumeName, setExtractedResumeName] = useState(''); // Name extracted from the current resume
-  const [tempSavedFilename, setTempSavedFilename] = useState(''); // Temporary filename from backend after parse
+  const [savedResumes, setSavedResumes] = useState([]); 
+  const [showInterviewQaId, setShowInterviewQaId] = useState(null); 
+  const [savedJdFilter, setSavedJdFilter] = useState('All Roles'); 
+  const [extractedResumeName, setExtractedResumeName] = useState(''); 
+  const [tempSavedFilename, setTempSavedFilename] = useState(''); 
 
-  // NEW STATES FOR SORTING SAVED RESUMES
-  const [sortKey, setSortKey] = useState('timestamp'); // 'timestamp', 'person_name', 'fit_score'
-  const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
+  const [sortKey, setSortKey] = useState('timestamp'); 
+  const [sortOrder, setSortOrder] = useState('desc'); 
 
-  // Function to extract numerical score (e.g., "90%" or "7/10")
   const getDisplayScore = (markdown) => {
     if (!markdown) return null;
 
-    // Try to extract score from lines like "Score: 5.0/10" or "Overall Score: 75%"
     let scoreMatch = markdown.match(/Score:\s*(\d+(\.\d+)?)\s*(\/\s*\d+)?(\s*%?)?/i);
     if (scoreMatch) {
-      const value = scoreMatch[1]; // e.g., "5" or "75"
-      const divisor = scoreMatch[3] ? scoreMatch[3].replace(/\s*\/\s*/, '') : ''; // e.g., "/10" -> "10"
+      const value = scoreMatch[1]; 
+      const divisor = scoreMatch[3] ? scoreMatch[3].replace(/\s*\/\s*/, '') : ''; 
       const isPercentage = scoreMatch[4] && scoreMatch[4].includes('%');
 
       if (isPercentage) {
@@ -55,35 +50,30 @@ function App() {
       } else if (divisor) {
         return `${value}/${divisor}`;
       } else {
-        // If it's just "Score: 75", assume out of 100
         return `${parseInt(value)}/100`;
       }
     }
 
-    // Fallback patterns if explicit "Score:" is not found at the beginning
-    let match = markdown.match(/^(\d+)%/); // e.g., "90%"
+    let match = markdown.match(/^(\d+)%/); 
     if (match) {
       return `${match[1]}/100`;
     }
 
-    match = markdown.match(/^(\d+)\s*\/\s*(\d+)/); // e.g., "7/10"
+    match = markdown.match(/^(\d+)\s*\/\s*(\d+)/); 
     if (match) {
       return `${match[1]}/${match[2]}`;
     }
 
-    match = markdown.match(/^(\d+)(?:\.\d+)?$/); // e.g., "75"
+    match = markdown.match(/^(\d+)(?:\.\d+)?$/); 
     if (match) {
         return `${parseInt(match[1])}/100`;
     }
 
-    // Final fallback: take the first line or a default message
     const firstLine = markdown.split('\n')[0].trim();
-    if (firstLine.length > 50) return "Score Available"; // Prevent long first lines
+    if (firstLine.length > 50) return "Score Available"; 
     return firstLine || "Score Available";
   };
 
-  // NEW: Function to fetch saved resumes based on filter and sort (wrapped in useCallback)
-  // Removed sortKey and sortOrder from useCallback dependencies as they are passed as arguments
   const fetchSavedResumes = useCallback(async (roleFilter, currentSortKey, currentSortOrder) => {
     setLoading(true);
     setError(null);
@@ -98,9 +88,8 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, []); // Empty dependency array now, as arguments are external dependencies
+  }, []); 
 
-  // Initial data fetch on component mount
   useEffect(() => {
     const fetchInitialData = async () => {
       setLoading(true);
@@ -109,7 +98,6 @@ function App() {
         const optionsRes = await fetch(`${API_BASE_URL}/jd_options`);
         if (!optionsRes.ok) throw new Error(`HTTP error! status: ${optionsRes.status}`);
         const optionsData = await optionsRes.json();
-        // Add 'All Roles' for filtering saved resumes
         setJdOptions(['All Roles', ...optionsData, 'Custom Input']);
 
         const defaultJdRes = await fetch(`${API_BASE_URL}/jd_default`);
@@ -117,7 +105,6 @@ function App() {
         const defaultJdData = await defaultJdRes.json();
         setJdText(defaultJdData);
 
-        // Fetch initial saved resumes with current sort states
         fetchSavedResumes('All Roles', sortKey, sortOrder); 
 
       } catch (err) {
@@ -128,14 +115,11 @@ function App() {
       }
     };
     fetchInitialData();
-  }, [fetchSavedResumes, sortKey, sortOrder]); // fetchSavedResumes is a dependency, sortKey and sortOrder are still needed here
+  }, [fetchSavedResumes, sortKey, sortOrder]); 
 
-
-  // Handler for JD role selection change
   const handleJDRoleChange = async (e) => {
     const role = e.target.value;
     setSelectedJDRole(role);
-    // If not 'Custom Input' or 'All Roles', fetch JD text
     if (role !== 'Custom Input' && role !== 'All Roles') {
       setLoading(true);
       setError(null);
@@ -155,14 +139,12 @@ function App() {
         setLoading(false);
       }
     } else if (role === 'Custom Input') {
-      setJdText(''); // Clear JD text for custom input
+      setJdText(''); 
     }
   };
 
-  // Handler for file input change
   const handleResumeFileChange = (e) => {
     setResumeFile(e.target.files[0]);
-    // Clear previous outputs when a new file is selected
     setParsedResumeOutput('');
     setResumeTextCache('');
     setResumeTableOutput('');
@@ -170,12 +152,11 @@ function App() {
     setJdMatchOutput('');
     setInterviewQaOutput('');
     setFitScoreOutput('');
-    setExtractedResumeName(''); // Clear extracted name
-    setTempSavedFilename(''); // Clear temp filename
+    setExtractedResumeName(''); 
+    setTempSavedFilename(''); 
     setError(null);
   };
 
-  // Handler for parsing resume
   const handleParseResume = async () => {
     if (!resumeFile) {
       setError("Please upload a PDF resume.");
@@ -185,7 +166,7 @@ function App() {
     setError(null);
     try {
       const formData = new FormData();
-      formData.append('resume', resumeFile); // 'resume' must match Flask's request.files['resume']
+      formData.append('resume', resumeFile); 
 
       const response = await fetch(`${API_BASE_URL}/parse_resume`, {
         method: 'POST',
@@ -195,24 +176,21 @@ function App() {
       if (response.ok) {
         setParsedResumeOutput(data.display_output);
         setResumeTextCache(data.raw_parsed_text);
-        setExtractedResumeName(data.extracted_name); // Store extracted name from backend
-        setTempSavedFilename(data.temp_saved_filename); // Store temp filename from backend
-        setActiveTab('parse'); // Switch to parsed resume tab
+        setExtractedResumeName(data.extracted_name); 
+        setTempSavedFilename(data.temp_saved_filename); 
+        setActiveTab('parse'); 
       } else {
         setError(data.error || "Failed to parse resume.");
-        setParsedResumeOutput(`\`\`\`plain\\nError: ${data.error || "Failed to parse resume."}\\n\`\`\``);
+        setParsedResumeOutput(`\`\`\`plain\nError: ${data.error || "Failed to parse resume."}\n\`\`\``);
       }
     } catch (err) {
       console.error("Error parsing resume:", err);
       setError("Error parsing resume: " + err.message);
-      setParsedResumeOutput(`\`\`\`plain\\nError: ${err.message}\\n\`\`\``);
+      setParsedResumeOutput(`\`\`\`plain\nError: ${err.message}\n\`\`\``);
     } finally {
       setLoading(false);
     }
   };
-
-  // Handlers for other functionalities (Generate Resume Table, Resume Check, JD Match, Generate Questions, Fit Score)
-  // These remain largely the same, but ensure they use `resumeTextCache` and `jdText` correctly.
 
   const handleGenerateResumeTable = async () => {
     if (!resumeTextCache) {
@@ -230,7 +208,7 @@ function App() {
       const data = await response.json();
       if (response.ok) {
         setResumeTableOutput(data.output);
-        setActiveTab('table'); // Switch to table tab after generation
+        setActiveTab('table'); 
       } else {
         setError(data.error || "Failed to generate resume table.");
       }
@@ -258,7 +236,7 @@ function App() {
       const data = await response.json();
       if (response.ok) {
         setResumeCheckOutput(data.output);
-        setActiveTab('check'); // Switch to check tab after generation
+        setActiveTab('check'); 
       } else {
         setError(data.error || "Failed to perform resume check.");
       }
@@ -286,7 +264,7 @@ function App() {
       const data = await response.json();
       if (response.ok) {
         setJdMatchOutput(data.output);
-        setActiveTab('jd-match'); // Switch to JD match tab after generation
+        setActiveTab('jd-match'); 
       } else {
         setError(data.error || "Failed to generate JD match.");
       }
@@ -314,7 +292,7 @@ function App() {
       const data = await response.json();
       if (response.ok) {
         setInterviewQaOutput(data.output);
-        setActiveTab('interview-qa'); // Switch to Q&A tab after generation
+        setActiveTab('interview-qa'); 
       } else {
         setError(data.error || "Failed to generate questions.");
       }
@@ -342,7 +320,6 @@ function App() {
       const data = await response.json();
       if (response.ok) {
         setFitScoreOutput(data.output);
-        // No tab switch here, as the score output is visible in the input section
       } else {
         setError(data.error || "Failed to calculate fit score.");
       }
@@ -354,7 +331,6 @@ function App() {
     }
   };
 
-  // NEW: Confirm Document Handler
   const handleConfirmDocument = async () => {
     if (!resumeTextCache || !jdText || !fitScoreOutput || !interviewQaOutput || !extractedResumeName || !tempSavedFilename) {
       setError("Please ensure a resume is parsed, fit score and interview Q&A are generated, and a name is extracted before confirming.");
@@ -372,21 +348,18 @@ function App() {
           fit_score_output: fitScoreOutput,
           interview_qa_output: interviewQaOutput,
           selected_jd_role: selectedJDRole,
-          original_file_name: resumeFile.name, // Original name from user's file system
-          temp_saved_filename: tempSavedFilename, // Unique temporary name from backend
-          parsed_resume_name: extractedResumeName, // Extracted name
-          timestamp: new Date().toISOString() // Current timestamp
+          original_file_name: resumeFile.name, 
+          temp_saved_filename: tempSavedFilename, 
+          parsed_resume_name: extractedResumeName, 
+          timestamp: new Date().toISOString() 
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        // In a real application, replace alert with a custom modal or toast notification
         alert("Document saved successfully!"); 
-        // Refresh the list of saved resumes
-        await fetchSavedResumes(savedJdFilter, sortKey, sortOrder); // Pass current sort states
-        // Clear current form inputs for a new entry
-        handleClearOutputs(); // Use the new clear outputs function
-        setActiveTab('all-resumes'); // Switch to all resumes tab after saving
+        await fetchSavedResumes(savedJdFilter, sortKey, sortOrder); 
+        handleClearOutputs(); 
+        setActiveTab('all-resumes'); 
       } else {
         setError(data.error || "Failed to confirm and save document.");
       }
@@ -398,23 +371,20 @@ function App() {
     }
   };
 
-  // NEW: Download Resume Handler
   const handleDownloadResume = (filename) => {
     window.open(`${API_BASE_URL}/download_resume/${filename}`, '_blank');
   };
 
-  // NEW: Toggle Interview QA Display
   const toggleInterviewQa = async (id, filename) => {
     if (showInterviewQaId === id) {
-      setShowInterviewQaId(null); // Hide if already open
+      setShowInterviewQaId(null); 
     } else {
-      setLoading(true); // Small loading for QA fetch
+      setLoading(true); 
       setError(null);
       try {
         const response = await fetch(`${API_BASE_URL}/get_interview_qa/${filename}`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
-        // Temporarily store the QA content in the item for display
         setSavedResumes(prevResumes => prevResumes.map(resume =>
           resume.id === id ? { ...resume, qa_content_display: data.qa_content } : resume
         ));
@@ -428,7 +398,6 @@ function App() {
     }
   };
 
-  // NEW: Handler to clear all current outputs (but not saved resumes)
   const handleClearOutputs = () => {
     setResumeFile(null);
     setParsedResumeOutput('');
@@ -442,15 +411,12 @@ function App() {
     setTempSavedFilename('');
     setError(null);
     setShowFullFitScoreReview(false);
-    // Reset file input display
     const fileInput = document.getElementById('resume-upload');
     if (fileInput) fileInput.value = '';
-    setActiveTab('parse'); // Go back to parse tab
+    setActiveTab('parse'); 
   };
 
-  // NEW: Handler to clear EVERYTHING (including saved data)
   const handleClearEverything = async () => {
-    // Using window.confirm for simplicity, replace with a custom modal in production
     if (window.confirm("WARNING: This will delete ALL saved resumes and analyses permanently.\nNote: This will delete all saved resumes. Are you sure?")) { 
       setLoading(true);
       setError(null);
@@ -460,9 +426,9 @@ function App() {
         });
         const data = await response.json();
         if (response.ok) {
-          alert("All data cleared successfully!"); // Use custom modal in production
-          handleClearOutputs(); // Clear current outputs
-          await fetchSavedResumes('All Roles', sortKey, sortOrder); // Refresh saved resumes (should be empty)
+          alert("All data cleared successfully!"); 
+          handleClearOutputs(); 
+          await fetchSavedResumes('All Roles', sortKey, sortOrder); 
         } else {
           setError(data.error || "Failed to clear all data.");
         }
@@ -475,7 +441,6 @@ function App() {
     }
   };
 
-  // Handler for sorting saved resumes
   const handleSortChange = (key) => {
     let newOrder = 'asc';
     if (sortKey === key && sortOrder === 'asc') {
@@ -483,18 +448,13 @@ function App() {
     }
     setSortKey(key);
     setSortOrder(newOrder);
-    // fetchSavedResumes is already called via useEffect when sortKey/sortOrder change
   };
-
 
   return (
     <div className="App">
-      {/* Hero Section: The background for this whole area is handled by the <body> CSS */}
       <div className="hero-section">
         <div className="hero-background"></div>
-        {/* hero-content now contains only text */}
         <div className="hero-content">
-          {/* Changed the heading text to the new project name */}
           <h1>ResumeFlow AI</h1>
           <p>Instantly analyze your resume, optimize for job descriptions, and prepare for interviews.</p>
         </div>
@@ -514,18 +474,17 @@ function App() {
               </button>
             </div>
 
-            {/* Added job-description-group class here */}
             <div className="input-group job-description-group">
               <label htmlFor="jd-select">Select Job Description Role</label>
               <select id="jd-select" value={selectedJDRole} onChange={handleJDRoleChange} disabled={loading}>
-                {jdOptions.filter(opt => opt !== 'All Roles').map((option) => ( // Filter out 'All Roles' for this selector
+                {jdOptions.filter(opt => opt !== 'All Roles').map((option) => ( 
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
 
-              <label htmlFor="jd-text-input">Or Paste Custom Job Description</label> {/* Added id */}
+              <label htmlFor="jd-text-input">Or Paste Custom Job Description</label> 
               <textarea
-                id="jd-text-input" // Added id
+                id="jd-text-input" 
                 placeholder="Paste your job description here..."
                 value={jdText}
                 onChange={(e) => setJdText(e.target.value)}
@@ -534,7 +493,6 @@ function App() {
             </div>
 
             <div className="input-group score-input-group">
-                {/* Removed htmlFor attribute from label as it targets a button, not an input */}
                 <label>Calculate Resume Fit Score</label> 
                 <button onClick={handleFitScore} disabled={loading || !resumeTextCache || !jdText}>
                     {loading && activeTab === 'fit-score' ? 'Calculating...' : 'Get Fit Score'}
@@ -564,7 +522,6 @@ function App() {
                         )}
                     </>
                 )}
-                {/* NEW: Confirm Document Button */}
                 {(fitScoreOutput && interviewQaOutput && extractedResumeName && tempSavedFilename) && (
                     <button
                         className="confirm-document-button"
@@ -607,33 +564,32 @@ function App() {
             </button>
             <button
               className={activeTab === 'table' ? 'active' : ''}
-              onClick={() => setActiveTab('table')} // Changed to just switch tab
+              onClick={() => setActiveTab('table')} 
               disabled={!resumeTextCache}
             >
               Resume Table
             </button>
             <button
               className={activeTab === 'check' ? 'active' : ''}
-              onClick={() => setActiveTab('check')} // Changed to just switch tab
+              onClick={() => setActiveTab('check')} 
               disabled={!resumeTextCache}
             >
               Resume Check
             </button>
             <button
               className={activeTab === 'jd-match' ? 'active' : ''}
-              onClick={() => setActiveTab('jd-match')} // Changed to just switch tab
+              onClick={() => setActiveTab('jd-match')} 
               disabled={!resumeTextCache || !jdText}
             >
               JD Match
             </button>
             <button
               className={activeTab === 'interview-qa' ? 'active' : ''}
-              onClick={() => setActiveTab('interview-qa')} // Changed to just switch tab
+              onClick={() => setActiveTab('interview-qa')} 
               disabled={!resumeTextCache || !jdText}
             >
               Interview Q&A
             </button>
-            {/* NEW: All Resumes Tab */}
             <button
               className={activeTab === 'all-resumes' ? 'active' : ''}
               onClick={() => { setActiveTab('all-resumes'); fetchSavedResumes(savedJdFilter, sortKey, sortOrder); }}
@@ -656,7 +612,6 @@ function App() {
             {activeTab === 'table' && (
               <div className="tab-pane">
                 <h3>Generated Resume Table</h3>
-                {/* Add button to trigger generation */}
                 <button onClick={handleGenerateResumeTable} disabled={loading || !resumeTextCache}>
                     Generate Table
                 </button>
@@ -670,7 +625,6 @@ function App() {
             {activeTab === 'check' && (
               <div className="tab-pane">
                 <h3>Resume Check & Feedback</h3>
-                {/* Add button to trigger generation */}
                 <button onClick={handleResumeCheck} disabled={loading || !resumeTextCache}>
                     Perform Check
                 </button>
@@ -684,7 +638,6 @@ function App() {
             {activeTab === 'jd-match' && (
               <div className="tab-pane">
                 <h3>Job Description Match Analysis</h3>
-                {/* Add button to trigger generation */}
                 <button onClick={handleJDMatch} disabled={loading || !resumeTextCache || !jdText}>
                     Analyze JD Match
                 </button>
@@ -698,7 +651,6 @@ function App() {
             {activeTab === 'interview-qa' && (
               <div className="tab-pane">
                 <h3>Interview Questions & Answers</h3>
-                {/* Add button to trigger generation */}
                 <button onClick={handleGenerateQuestions} disabled={loading || !resumeTextCache || !jdText}>
                     Generate Q&A
                 </button>
@@ -709,7 +661,6 @@ function App() {
                 </div>
               </div>
             )}
-            {/* All Resumes Tab Content */}
             {activeTab === 'all-resumes' && (
               <div className="tab-pane all-resumes-section">
                 <h3>All Saved Resumes</h3>
@@ -719,13 +670,12 @@ function App() {
                         setSavedJdFilter(e.target.value);
                         fetchSavedResumes(e.target.value, sortKey, sortOrder);
                     }} disabled={loading}>
-                        {jdOptions.map((option) => ( // Show all options including 'All Roles'
+                        {jdOptions.map((option) => ( 
                             <option key={option} value={option}>{option}</option>
                         ))}
                     </select>
                 </div>
 
-                {/* NEW: Sorting Controls */}
                 <div className="sort-controls">
                     <span>Sort by:</span>
                     <button 
@@ -747,7 +697,6 @@ function App() {
                         Date {sortKey === 'timestamp' && (sortOrder === 'asc' ? '▲' : '▼')}
                     </button>
                 </div>
-
 
                 {loading ? (
                     <div className="loading-message">
