@@ -7,8 +7,7 @@ import LoaderGif from './load.gif'; // Make sure this path is correct
 
 // Using explicit URL for API calls
 // Use environment variable for the API URL, with a fallback for local development
-const API_BASE_URL = "https://resumeflow-ai-62mb.onrender.com/api";
-
+const API_BASE_URL = "https://resumeflow-ai-62mb.onrender.com";
 function App() {
   const [resumeFile, setResumeFile] = useState(null);
   const [jdOptions, setJdOptions] = useState([]); // Stores JD roles from backend
