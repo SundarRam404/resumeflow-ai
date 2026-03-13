@@ -486,6 +486,15 @@ def api_resume_check():
     return jsonify({
         "output": resume_check_content(data.get('resume_text'))
     })
+@app.route('/get_saved_resumes', methods=['GET'])
+def get_saved_resumes():
+    return jsonify([])
+@app.route('/download_resume/<filename>')
+def download_resume(filename):
+    return jsonify({"message": "resume download disabled"})
+@app.route('/get_interview_qa')
+def get_interview_qa():
+    return jsonify([])
 
 
 @app.route('/jd_match', methods=['POST'])
