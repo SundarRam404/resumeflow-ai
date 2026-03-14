@@ -272,7 +272,24 @@ def api_fit_score():
             data.get("jd_text")
         )
     })
-
+@app.route('/jd_options', methods=['GET'])
+def jd_options():
+    return jsonify([
+        "Software Engineer",
+        "Frontend Developer",
+        "Backend Developer",
+        "Data Scientist",
+        "Machine Learning Engineer",
+        "AI Engineer",
+        "Full Stack Developer",
+        "DevOps Engineer"
+    ])
+@app.route('/jd_default', methods=['GET'])
+def jd_default():
+    return jsonify({
+        "Software Engineer":
+        "We are seeking a skilled Software Engineer with strong problem-solving abilities and experience in data structures, algorithms, and object-oriented programming."
+    })
 
 # -------------------------------
 # SERVER START
