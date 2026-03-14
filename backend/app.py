@@ -110,7 +110,7 @@ def parse_resume_content(pdf_file_path):
         full_prompt = f"{prompt}\n\nResume Content:\n{resume_text}"
 
         response = client.chat.completions.create(
-            model="llama3-70b-8192",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "user", "content": full_prompt}
             ]
@@ -177,7 +177,7 @@ def resume_check_content(resume_text):
     """
 
     response = client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "user", "content": prompt}
         ]
@@ -212,7 +212,7 @@ def jd_match_content(resume_text, jd_text):
     """
 
     response = client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "user", "content": prompt}
         ]
@@ -243,7 +243,7 @@ def generate_questions_content(resume_text, jd_text):
     """
 
     response = client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "user", "content": prompt}
         ]
@@ -284,7 +284,7 @@ def fit_score_content(resume_text, jd_text):
     """
 
     response = client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "user", "content": prompt}
         ]
@@ -368,7 +368,7 @@ def generate_table_from_raw_text(raw_text):
 
     try:
         response = client.chat.completions.create(
-            model="llama3-70b-8192",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "user", "content": prompt}
             ]
