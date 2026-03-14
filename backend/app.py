@@ -1,5 +1,3 @@
-from gevent import monkey
-monkey.patch_all()
 
 import os
 import json
@@ -7,14 +5,14 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import fitz  # PyMuPDF
-from PIL import Image
-import tempfile
 from groq import Groq
 import uuid  # For unique filenames
 import shutil  # For copying/moving files
 import re  # For extracting name from parsed text
 
-app = Flask(__name__)
+
+MAX_RESUME_CHARS = 12000
+MIN_EXTRACTED_TEXT_LEN = 30
 
 # --- CHANGE 1: DYNAMIC CORS FOR DEPLOYMENT ---
 frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000')
@@ -27,7 +25,7 @@ if not groq_key:
 
 client = Groq(api_key=groq_key)
 
-# --- Directory Setup (Unchanged) ---
+os.makedirs('saved_data', exist_ok=True)
 UPLOAD_FOLDER = 'uploads/temp_resumes'
 SAVED_RESUMES_DIR = 'saved_data/resumes'
 METADATA_DB_FILE = 'saved_data/resumes_metadata.json'
@@ -57,13 +55,15 @@ def extract_pdf_text(pdf_file_path):
     Extracts all text from a PDF file for LLM processing.
     """
     doc = fitz.open(pdf_file_path)
-    text = ""
+    text_parts = []
 
     for page in doc:
-        text += page.get_text()
+        page_text = page.get_text("text")
+        if page_text:
+            text_parts.append(page_text)
 
     doc.close()
-    return text
+    return "\n".join(text_parts).strip()
 
 
 def parse_resume_content(pdf_file_path):
@@ -71,45 +71,23 @@ def parse_resume_content(pdf_file_path):
     Parses a resume PDF using Groq Llama3.
     Returns parsed JSON string, raw text, and extracted name.
     """
-
     try:
         resume_text = extract_pdf_text(pdf_file_path)
 
-        prompt = """
-        You are an AI resume parser. Extract the following information from the resume:
-        1.  **Name**: The full name of the candidate.
-        2.  **Email**: The candidate's email address.
-        3.  **Phone Number**: The candidate's phone number.
-        4.  **Education**: A list of educational entries. For each, include:
-            * Degree (e.g., "Bachelor of Science in Computer Engineering")
-            * Institution (e.g., "University of California, Berkeley")
-            * Years (e.g., "2018-2022")
-            * Location (e.g., "Berkeley, CA")
-        5.  **Skills**: A list of key technical and soft skills. Categorize if possible (e.g., "Programming Languages", "Frameworks", "Tools").
-        6.  **Work Experience**: A list of work experience entries. For each, include:
-            * Title (e.g., "Software Engineer")
-            * Company (e.g., "Google")
-            * Dates (e.g., "Jan 2022 - Present")
-            * Responsibilities (a list of key responsibilities and achievements, use bullet points).
-        7.  **Projects**: A list of significant projects. For each, include:
-            * Name (e.g., "E-commerce Platform")
-            * Technologies (a list of technologies used).
-            * Outcomes (a list of key outcomes or features).
-        Format your entire response as a single, valid JSON object.
-        If a section is not found or is empty, use an empty string for single values or an empty list for arrays.
-        Example JSON structure:
-        {
-          "name": "John Doe", "email": "john.doe@example.com", "phone": "+1234567890",
-          "education": [{"degree": "B.S. Computer Science", "institution": "University A", "years": "2018-2022", "location": "City A"}],
-          "skills": {"Programming Languages": ["Python", "Java"], "Frameworks": ["React", "Spring Boot"]},
-          "experience": [{"title": "Software Engineer", "company": "Tech Corp", "dates": "Jan 2023 - Present", "responsibilities": ["Developed scalable APIs", "Optimized database queries"]}],
-          "projects": [{"name": "Portfolio Website", "technologies": ["React", "Node.js"], "outcomes": ["Showcased projects", "Improved personal branding"]}]
-        }
-        """
+        print("========== EXTRACTED RESUME TEXT START ==========")
+        print(resume_text[:3000])
+        print("========== EXTRACTED RESUME TEXT END ==========")
+        print("Extracted text length:", len(resume_text))
+
+        if not resume_text or len(resume_text.strip()) < MIN_EXTRACTED_TEXT_LEN:
+            return {
+                "display_output": "```plain\nCould not extract readable text from the PDF. The file may be scanned/image-based or empty.\n```",
+                "raw_parsed_text": json.dumps({"error": "No readable text extracted from PDF"}),
+                "extracted_name": "Unreadable PDF"
+            }
 
         system_prompt = """You are a resume parser. You MUST respond with ONLY a valid JSON object.
 No explanation, no markdown fences, no ```json, no extra text before or after. Just raw JSON.
-
 The JSON must follow this exact structure:
 {
   "name": "string",
@@ -130,12 +108,15 @@ Rules:
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Parse this resume and return only JSON:\n\n{resume_text}"}
+                {"role": "user", "content": f"Parse this resume and return only JSON:\n\n{resume_text[:MAX_RESUME_CHARS]}"}
             ],
             temperature=0.0
         )
 
         raw_llm_output = response.choices[0].message.content.strip()
+        print("========== RAW LLM OUTPUT START ==========")
+        print(raw_llm_output)
+        print("========== RAW LLM OUTPUT END ==========")
 
         parsed_json = {}
         extracted_name = "Unknown Person"
@@ -143,22 +124,32 @@ Rules:
         try:
             clean = re.sub(r'^```(?:json)?\s*', '', raw_llm_output)
             clean = re.sub(r'\s*```$', '', clean).strip()
-
             parsed_json = json.loads(clean)
 
-            extracted_name = parsed_json.get("name", "Unknown Person")
+            extracted_name = parsed_json.get("name") or "Unknown Person"
 
-            display_output = f"```json\n{json.dumps(parsed_json, indent=2)}\n```"
+            is_effectively_empty = (
+                not parsed_json.get("name") and
+                not parsed_json.get("email") and
+                not parsed_json.get("phone") and
+                not parsed_json.get("education") and
+                not parsed_json.get("skills") and
+                not parsed_json.get("experience") and
+                not parsed_json.get("projects")
+            )
+
+            if is_effectively_empty:
+                display_output = "```plain\nResume text was extracted, but the model returned an empty result. Check the Render logs for the extracted text preview and raw LLM output.\n```"
+            else:
+                display_output = f"```json\n{json.dumps(parsed_json, indent=2)}\n```"
 
         except json.JSONDecodeError as e:
-
             display_output = f"""```plain
 Error parsing LLM JSON output: {e}
 
 Raw LLM Output:
 {raw_llm_output}
 ```"""
-
             parsed_json = {"raw_text_fallback": raw_llm_output}
             extracted_name = "Unknown Person (Parsing Error)"
 
@@ -169,6 +160,7 @@ Raw LLM Output:
         }
 
     except Exception as e:
+        print(f"Error during resume parsing process: {e}")
         return {
             "display_output": f"```plain\nError during resume parsing process: {e}\n```",
             "raw_parsed_text": json.dumps({"error": str(e)}),
@@ -434,16 +426,19 @@ def get_jd_default():
 
 @app.route('/jd_text', methods=['POST'])
 def get_jd_text():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     role = data.get('role')
     return jsonify("" if role == "Custom Input" else JD_OPTIONS.get(role, "No default JD found."))
 
 @app.route('/parse_resume', methods=['POST'])
 def api_parse_resume():
-    if 'resume' not in request.files: return jsonify({"error": "No resume file provided"}), 400
+    if 'resume' not in request.files:
+        return jsonify({"error": "No resume file provided"}), 400
+
     file = request.files['resume']
-    if file.filename == '': return jsonify({"error": "No selected file"}), 400
-    
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
     original_filename = secure_filename(file.filename)
     unique_temp_filename = f"{uuid.uuid4()}_{original_filename}"
     temp_filepath = os.path.join(UPLOAD_FOLDER, unique_temp_filename)
@@ -451,38 +446,45 @@ def api_parse_resume():
 
     try:
         parsed_data = parse_resume_content(temp_filepath)
-        parsed_data.update({"original_filename": original_filename, "temp_saved_filename": unique_temp_filename})
+        parsed_data.update({
+            "original_filename": original_filename,
+            "temp_saved_filename": unique_temp_filename
+        })
         return jsonify(parsed_data)
     except Exception as e:
-        if os.path.exists(temp_filepath): os.remove(temp_filepath)
-        return jsonify({"error": f"Error: {e}", "display_output": f"```plain\nError: {e}\n```"}), 500
+        return jsonify({
+            "error": f"Error: {e}",
+            "display_output": f"```plain\nError: {e}\n```"
+        }), 500
 
 @app.route('/resume_check', methods=['POST'])
 def api_resume_check():
-    return jsonify({"output": resume_check_content(request.get_json().get('resume_text'))})
+    data = request.get_json(silent=True) or {}
+    return jsonify({"output": resume_check_content(data.get('resume_text'))})
 
 @app.route('/jd_match', methods=['POST'])
 def api_jd_match():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     return jsonify({"output": jd_match_content(data.get('resume_text'), data.get('jd_text'))})
 
 @app.route('/generate_questions', methods=['POST'])
 def api_generate_questions():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     return jsonify({"output": generate_questions_content(data.get('resume_text'), data.get('jd_text'))})
 
 @app.route('/fit_score', methods=['POST'])
 def api_fit_score():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     return jsonify({"output": fit_score_content(data.get('resume_text'), data.get('jd_text'))})
 
 @app.route('/generate_resume_table', methods=['POST'])
 def api_generate_resume_table():
-    return jsonify({"output": convert_json_to_markdown_table_programmatic(request.get_json().get('resume_text_cache'))})
+    data = request.get_json(silent=True) or {}
+    return jsonify({"output": convert_json_to_markdown_table_programmatic(data.get('resume_text_cache'))})
 
 @app.route('/confirm_document', methods=['POST'])
 def confirm_document():
-    data = request.json
+    data = request.get_json(silent=True) or {}
     required_keys = ['resume_text_cache', 'jd_text', 'fit_score_output', 'interview_qa_output', 'selected_jd_role', 'original_file_name', 'temp_saved_filename', 'parsed_resume_name']
     if not all(k in data for k in required_keys):
         return jsonify({"error": "Missing required data for confirmation"}), 400
@@ -551,7 +553,9 @@ def clear_all_data():
         for folder in [UPLOAD_FOLDER, SAVED_RESUMES_DIR]:
             if os.path.exists(folder):
                 for filename in os.listdir(folder):
-                    os.remove(os.path.join(folder, filename))
+                    file_path = os.path.join(folder, filename)
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
         with open(METADATA_DB_FILE, 'w') as f:
             json.dump([], f)
         return jsonify({"message": "All data cleared successfully!"}), 200
@@ -562,7 +566,9 @@ if __name__ == "__main__":
     if os.path.exists(UPLOAD_FOLDER):
         for filename in os.listdir(UPLOAD_FOLDER):
             try:
-                os.remove(os.path.join(UPLOAD_FOLDER, filename))
+                file_path = os.path.join(UPLOAD_FOLDER, filename)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
             except Exception as e:
                 print(f"Error cleaning up old temp file: {e}")
 
