@@ -10,6 +10,9 @@ import uuid  # For unique filenames
 import shutil  # For copying/moving files
 import re  # For extracting name from parsed text
 
+app = Flask(__name__)
+
+
 
 MAX_RESUME_CHARS = 12000
 MIN_EXTRACTED_TEXT_LEN = 30
