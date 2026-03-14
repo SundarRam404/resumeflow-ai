@@ -1,6 +1,3 @@
-from gevent import monkey
-monkey.patch_all()
-
 import os
 import json
 import re
@@ -56,11 +53,19 @@ def parse_resume_content(pdf_path):
     
     # Prompting for a strict JSON format
     prompt = """
-    Extract structured resume information from the text below. 
-    Return ONLY a valid JSON object with these keys: 
-    name, email, phone, education, skills, experience, projects.
+    Extract resume information.
+    Return STRICT JSON only.
+    Schema:
+    {"name": "",
+    "email": "",
+    "phone": "",
+    "education": [],
+    "skills": [],
+    "experience": [],
+    "projects": []
+    }
+    Do not add explanations.
     """
-
     try:
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -68,12 +73,15 @@ def parse_resume_content(pdf_path):
         )
         
         raw_content = response.choices[0].message.content
-        json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
-        
-        if json_match:
-            parsed_json = json.loads(json_match.group())
-        else:
-            raise ValueError("No JSON found")
+        print("GROQ OUTPUT:", raw_content)
+        try:
+            parsed_json = json.loads(raw_content)
+        except:
+            json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
+            if json_match:
+                parsed_json = json.loads(json_match.group())
+            else:
+                parsed_json = {}
 
         return {
             "display_output": json.dumps(parsed_json, indent=2),
@@ -105,6 +113,8 @@ def api_parse_resume():
     file.save(temp_path)
 
     data = parse_resume_content(temp_path)
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
     
     # Save to our "database" so the GET request finds it
     resume_entry = {
