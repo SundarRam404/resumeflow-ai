@@ -107,25 +107,44 @@ def parse_resume_content(pdf_file_path):
         }
         """
 
-        full_prompt = f"{prompt}\n\nResume Content:\n{resume_text}"
+        system_prompt = """You are a resume parser. You MUST respond with ONLY a valid JSON object.
+No explanation, no markdown fences, no ```json, no extra text before or after. Just raw JSON.
+
+The JSON must follow this exact structure:
+{
+  "name": "string",
+  "email": "string",
+  "phone": "string",
+  "education": [{"degree": "string", "institution": "string", "years": "string", "location": "string"}],
+  "skills": {"Category Name": ["skill1", "skill2"]},
+  "experience": [{"title": "string", "company": "string", "dates": "string", "responsibilities": ["string"]}],
+  "projects": [{"name": "string", "technologies": ["string"], "outcomes": ["string"]}]
+}
+Rules:
+- Extract ALL information present. Do not leave fields empty if the data exists in the resume.
+- For skills, group into categories like "Programming Languages", "Frameworks", "Tools", "Soft Skills".
+- If a field truly does not exist, use "" for strings and [] for arrays.
+- Output ONLY the JSON. Nothing else."""
 
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "user", "content": full_prompt}
-            ]
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Parse this resume and return only JSON:\n\n{resume_text}"}
+            ],
+            temperature=0.0
         )
 
-        raw_llm_output = response.choices[0].message.content
+        raw_llm_output = response.choices[0].message.content.strip()
 
         parsed_json = {}
         extracted_name = "Unknown Person"
 
         try:
-            json_match = re.search(r'```json\n([\s\S]*?)\n```', raw_llm_output, re.DOTALL)
-            json_str = json_match.group(1) if json_match else raw_llm_output
+            clean = re.sub(r'^```(?:json)?\s*', '', raw_llm_output)
+            clean = re.sub(r'\s*```$', '', clean).strip()
 
-            parsed_json = json.loads(json_str)
+            parsed_json = json.loads(clean)
 
             extracted_name = parsed_json.get("name", "Unknown Person")
 
